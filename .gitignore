@@ -2,5 +2,9 @@
 .Rhistory
 .RData
 .Ruserdata
-output/figures/*
-output/results/*
+output/figures/diagnosis/
+output/figures/hospitalization/
+output/figures/seizure/
+output/results/diagnosis/
+output/results/hospitalization/
+output/results/seizure/
