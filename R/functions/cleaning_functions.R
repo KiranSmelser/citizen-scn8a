@@ -121,17 +121,6 @@ merge_intervals <- function(intervals_df) {
 clean_medication_data <- function() {
   df_med <- read_excel(PATH_CITIZEN_DATA, sheet = "medication_aggregate")
   
-  meds_to_use <- paste(
-    c("Adrenocorticotropin (ACTH 1-18),I-125 (TYR)", "Clonazepam", "Levetiracetam", 
-      "Phenytoin", "Oxcarbazepine", "Carbamazepine", "Phenobarbital", 
-      "Lamotrigine", "Briveracetam", "Cannabidiol", "Clobazam", "Epidiolex", 
-      "Eslicarbazepine", "Ethosuximide", "Felbamate", "Gabapentin", 
-      "Prednisolone", "Lacosamide", "Primidone", "Rufinamide", "Topiramate", 
-      "Valproate", "Vigabatrin", "Zonisamide", "Stiripentol", "Tiagabine", 
-      "Perampanel"),
-    collapse = "|"
-  )
-  
   df_med <- df_med %>%
     mutate(
       medication = ifelse(
@@ -145,7 +134,7 @@ clean_medication_data <- function() {
         `Cannabidiol` = "Epidiolex/CBD"
       )
     ) %>%
-    filter(grepl(meds_to_use, medication))
+    filter(grepl(MEDS_TO_USE, medication))
   
   # Build intervals & merge them by patient + medication
   df_duration <- df_med %>%

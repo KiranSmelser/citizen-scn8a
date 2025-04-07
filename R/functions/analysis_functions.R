@@ -172,3 +172,84 @@ calculate_seizure_index_comparisons <- function(df_type, df_duration, appointmen
   seizures_summary_combined <- bind_rows(seizures_summary_list)
   return(seizures_summary_combined)
 }
+
+# Function to compute seizure counts and summary per patient.
+get_seizure_counts <- function(df_table_data) {
+  df_table_data %>%
+    group_by(patient_uuid) %>%
+    summarise(
+      seizure_count = n(),
+      mean_index = round(mean(index, na.rm = TRUE), 2),
+      number_seizure_types = n_distinct(type),
+      seizure_types = paste(unique(type), collapse = ", "),
+      .groups = "drop"
+    )
+}
+
+# Function to calculate the largest gap between seizure events.
+get_seizure_gaps <- function(df_table_data) {
+  df_table_data %>%
+    group_by(patient_uuid) %>%
+    arrange(age_in_months) %>%
+    summarise(
+      gap = ifelse(n() > 1, max(diff(age_in_months), na.rm = TRUE), NA_real_),
+      start_gap_age = ifelse(n() > 1, age_in_months[which.max(diff(age_in_months))], NA_real_),
+      end_gap_age = ifelse(n() > 1, age_in_months[which.max(diff(age_in_months)) + 1], NA_real_),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      gap = round(replace_na(gap, 0), 2),
+      start_gap_age = round(start_gap_age, 2),
+      end_gap_age = round(end_gap_age, 2),
+      gap_period = if_else(gap > 0, paste0(start_gap_age, " - ", end_gap_age), "No gap")
+    )
+}
+
+# Function to determine current vs. weened medications per patient.
+get_medication_status <- function(df_duration, appointment_summary) {
+  df_duration %>%
+    mutate(
+      end_age_months = end_med_age / 30,
+      start_age_months = start_med_age / 30
+    ) %>%
+    left_join(appointment_summary, by = "patient_uuid") %>%
+    group_by(patient_uuid, medication) %>%
+    summarise(
+      is_current = any(end_age_months >= last_appointment, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    group_by(patient_uuid) %>%
+    summarise(
+      current_medications = paste(medication[is_current], collapse = ", "),
+      weened_medications = paste(medication[!is_current], collapse = ", "),
+      number_current_medications = sum(is_current),
+      number_weened_medications = sum(!is_current),
+      .groups = "drop"
+    )
+}
+
+# Function to determine medications that were active during a seizure gap.
+get_gap_medications <- function(seizure_gaps, seizures_summary) {
+  meds_during_gap <- seizure_gaps %>%
+    inner_join(seizures_summary, by = "patient_uuid") %>%
+    filter(
+      round(start_med_age / 30) <= end_gap_age,
+      round(end_med_age / 30) >= start_gap_age
+    ) %>%
+    select(patient_uuid, medication, start_med_age, end_med_age, gap_period) %>%
+    mutate(
+      start_in_months = round(start_med_age / 30, 2),
+      end_in_months = round(end_med_age / 30, 2)
+    ) %>%
+    distinct()
+  
+  gap_meds_join <- meds_during_gap %>%
+    group_by(patient_uuid) %>%
+    summarise(
+      number_med_types_gap = n_distinct(medication),
+      med_types_gap = paste(unique(medication), collapse = ", "),
+      .groups = "drop"
+    )
+  
+  gap_meds_join
+}

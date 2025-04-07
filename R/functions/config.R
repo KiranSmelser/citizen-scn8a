@@ -26,3 +26,53 @@ PATH_TONIC_INDEX <- file.path(DATA_RAW, "tonic_index.xlsx")
 
 # Global parameters
 AGE_CUTOFF_DAYS <- 1095  # 3 years in days
+
+# Medication names to use in cleaning
+MEDS_TO_USE <- paste(
+  c("Adrenocorticotropin (ACTH 1-18),I-125 (TYR)", "Clonazepam", "Levetiracetam", 
+    "Phenytoin", "Oxcarbazepine", "Carbamazepine", "Phenobarbital", 
+    "Lamotrigine", "Briveracetam", "Cannabidiol", "Clobazam", "Epidiolex", 
+    "Eslicarbazepine", "Ethosuximide", "Felbamate", "Gabapentin", 
+    "Prednisolone", "Lacosamide", "Primidone", "Rufinamide", "Topiramate", 
+    "Valproate", "Vigabatrin", "Zonisamide", "Stiripentol", "Tiagabine", 
+    "Perampanel"),
+  collapse = "|"
+)
+
+# Abbreviations for recoding medications and seizure types
+ABBREVIATIONS_MEDS <- c(
+  "Oxcarbazepine" = "OXC",
+  "Lacosamide" = "LCM",
+  "Phenytoin" = "PHT", 
+  "Valproate" = "VPA", 
+  "Lamotrigine" = "LTG", 
+  "Carbamazepine" = "CBZ", 
+  "Rufinamide" = "RFM",
+  "Eslicarbazepine" = "ESL", 
+  "Clonazepam" = "CLZ",
+  "Clobazam" = "CLB",
+  "Phenobarbital" = "PBT", 
+  "Vigabatrin" = "VBG", 
+  "Felbamate" = "FBM",
+  "Primidone" = "PRM", 
+  "Stiripentol" = "STP", 
+  "Tiagabine" = "TGB", 
+  "Zonisamide" = "ZNS",
+  "Gabapentin" = "GBP",
+  "Ethosuximide" = "ETX", 
+  "Levetiracetam" = "LEV", 
+  "Briveracetam" = "BRV", 
+  "ACTH" = "ACTH",
+  "Epidiolex/CBD" = "CBD",
+  "Topiramate" = "TPM",
+  "Prednisolone" = "PRD",
+  "Perampanel" = "PER",
+  "None" = "None"
+)
+ABBREVIATIONS_SEIZURES <- c(
+  "Tonic-clonic" = "BTC",
+  "Focal" = "FOC",
+  "Absence" = "ABS",
+  "Tonic" = "TON",
+  "Myoclonic" = "MYC"
+)
