@@ -16,6 +16,7 @@ PATH_CLASSIFIER <- file.path(DATA_CLASSIFIERS, "ciitizen_health_classifier.xlsx"
 PATH_HOSPITALIZATION_CLASSIFIER <- file.path(DATA_CLASSIFIERS, "Grouping Hospitalizations.xlsx")
 PATH_OVERLAP_PATIENTS <- file.path(DATA_CLASSIFIERS, "Overlap Patients corrected.xlsx")
 PATH_EFFECTS_SEVERITY <- file.path(DATA_CLASSIFIERS, "effects_severity.xlsx")
+PATH_INITIAL_CLASSIFIER <- file.path(DATA_CLASSIFIERS, "initial_seizure_types_classifier.xlsx")
 
 # Additional index files
 PATH_TC_INDEX <- file.path(DATA_RAW, "tonic-clonic_index.xlsx")

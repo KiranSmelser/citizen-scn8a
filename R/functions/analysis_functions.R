@@ -173,7 +173,7 @@ calculate_seizure_index_comparisons <- function(df_type, df_duration, appointmen
   return(seizures_summary_combined)
 }
 
-# Function to compute seizure counts and summary per patient.
+# Determines seizure counts per patient
 get_seizure_counts <- function(df_table_data) {
   df_table_data %>%
     group_by(patient_uuid) %>%
@@ -186,7 +186,7 @@ get_seizure_counts <- function(df_table_data) {
     )
 }
 
-# Function to calculate the largest gap between seizure events.
+# Calculates largest gap without seizure events
 get_seizure_gaps <- function(df_table_data) {
   df_table_data %>%
     group_by(patient_uuid) %>%
@@ -205,7 +205,7 @@ get_seizure_gaps <- function(df_table_data) {
     )
 }
 
-# Function to determine current vs. weened medications per patient.
+# Determines current vs. weened medications for each patient
 get_medication_status <- function(df_duration, appointment_summary) {
   df_duration %>%
     mutate(
@@ -228,7 +228,7 @@ get_medication_status <- function(df_duration, appointment_summary) {
     )
 }
 
-# Function to determine medications that were active during a seizure gap.
+# Determines active medications during seizure gaps
 get_gap_medications <- function(seizure_gaps, seizures_summary) {
   meds_during_gap <- seizure_gaps %>%
     inner_join(seizures_summary, by = "patient_uuid") %>%
@@ -252,4 +252,43 @@ get_gap_medications <- function(seizure_gaps, seizures_summary) {
     )
   
   gap_meds_join
+}
+
+# Computes number of unique seizure types for each patient
+get_unique_seizure_types <- function() {
+  seizure_data <- read_seizure_history() %>%
+    rename(UUID = patient_uuid) %>%
+    filter(seizure_history_age_days < AGE_CUTOFF_DAYS) %>%
+    select(UUID, seizure_history_type)
+  
+  # Exclude non-specific/uninformative seizure types
+  exclude_types <- c("Seizure", "Unclassified seizure", "Provoked seizure", "Unprovoked seizure")
+  seizure_data <- seizure_data %>%
+    filter(!seizure_history_type %in% exclude_types)
+  
+  # Read classifier
+  classifier <- read_excel(PATH_CLASSIFIER)
+  types_classifier <- classifier %>% select(8:13)
+  
+  # Helper function to map seizure type to corresponding group from classifier
+  find_column_name <- function(value, df) {
+    for (col_name in names(df)) {
+      if (value %in% df[[col_name]]) {
+        return(col_name)
+      }
+    }
+    return(NA)
+  }
+  
+  # Map each seizure_history_type to seizure group based on classifier
+  seizure_data <- seizure_data %>%
+    mutate(seizure_group = sapply(seizure_history_type, find_column_name, df = types_classifier))
+  
+  # Count number of unique seizure types per patient
+  unique_seizure_types <- seizure_data %>%
+    group_by(UUID) %>%
+    summarise(unique_types = n_distinct(seizure_group, na.rm = TRUE)) %>%
+    ungroup()
+  
+  return(unique_seizure_types)
 }
