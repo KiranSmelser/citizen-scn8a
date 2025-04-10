@@ -168,8 +168,7 @@ clean_medication_data <- function() {
   return(df_duration)
 }
 
-# Clean and transform seizure data
-clean_seizure_data <- function() {
+clean_seizure_data <- function(include_spasms = FALSE) {
   df_sz <- read_excel(PATH_CITIZEN_DATA, sheet = "seizure_history")
   
   # Apply conversions for each type of inequality symbol
@@ -187,16 +186,22 @@ clean_seizure_data <- function() {
   classifier <- classifier[grepl("seizure_", names(classifier))]
   names(classifier) <- sub('^seizure_', '', names(classifier))
   
-  # Filter for relevant seizure types from classifier
+  # Create valid seizure types vector, including spasms if requested
+  valid_types <- c(classifier$`tonic-clonic`, classifier$focal, classifier$absence, classifier$tonic, classifier$myoclonic)
+  if (include_spasms) {
+    valid_types <- c(valid_types, classifier$spasms)
+  }
+  
+  # Filter and recode seizure types based on valid_types
   df_type <- df_sz %>% 
-    filter(type %in% c(classifier$`tonic-clonic`, classifier$focal, 
-                       classifier$absence, classifier$tonic, classifier$myoclonic)) %>%
+    filter(type %in% valid_types) %>%
     mutate(type = case_when(
       type %in% classifier$`tonic-clonic` ~ "Tonic-clonic",
       type %in% classifier$focal ~ "Focal",
       type %in% classifier$absence ~ "Absence",
       type %in% classifier$tonic ~ "Tonic",
       type %in% classifier$myoclonic ~ "Myoclonic",
+      include_spasms & type %in% classifier$spasms ~ "Spasms",
       TRUE ~ type
     ))
   
@@ -584,4 +589,112 @@ clean_abnormal_eeg <- function() {
     rename(UUID = patient_uuid) %>%
     distinct(UUID, abnormal_eeg)
   return(eeg_data)
+}
+
+# Function to clean hospitalization data
+clean_hospitalization_data <- function(select_cols = c(1:2)) {
+  hosp <- read_excel(PATH_CITIZEN_DATA, sheet = "hospital_admission")
+  hosp <- subset(hosp, select = select_cols)
+  
+  # Read hospitalization classifier
+  hosp_classifier <- read_excel(PATH_HOSPITALIZATION_CLASSIFIER)
+  
+  # Apply hospitalization classifier
+  hosp <- left_join(hosp, hosp_classifier, by = c("admission_diagnosis" = "Hospitalization Events"))
+  hosp <- hosp %>% filter(`Admission Type` %in% c("Emergency", "Incidental"))
+  
+  return(hosp)
+}
+
+# Function to calculate frequency counts for hospitalization data
+calculate_hospitalization_frequencies <- function(hosp_data) {
+  library(dplyr)
+  
+  # Compute frequency grouped by Admission Type, Subgroup and diagnosis
+  freq_df <- hosp_data %>%
+    group_by(`Admission Type`, Subgroup, admission_diagnosis) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    ungroup() %>%
+    na.omit()
+  
+  # Split into seizure and non-seizure groups
+  seizure_freq <- freq_df %>% filter(Subgroup == "Seizure")
+  other_freq   <- freq_df %>% filter(Subgroup != "Seizure")
+  
+  other_freq <- other_freq %>% mutate(Facet = "Other")
+  seizure_freq <- seizure_freq %>% mutate(Facet = "Seizure")
+  
+  # Recode all seizure diagnoses that are not status events to seizure
+  seizure_freq <- seizure_freq %>%
+    mutate(admission_diagnosis = if_else(admission_diagnosis == "Status epilepticus", 
+                                         "Status epilepticus", "Seizure"))
+  
+  hosp_data_mod <- hosp_data
+  hosp_data_mod$admission_diagnosis[hosp_data_mod$admission_diagnosis == "Aspiration pneumonia"] <- "Pneumonia"
+  hosp_data_mod$admission_diagnosis[hosp_data_mod$admission_diagnosis == "Acute respiratory failure"] <- "Respiratory failure"
+  
+  # Diagnoses of interest
+  specific_types <- c("Respiratory failure", "Pneumonia")
+  
+  # Compute frequencies for specific hospitalizations
+  specific_hosp <- hosp_data_mod %>%
+    filter(`Admission Type` == "Emergency", 
+           admission_diagnosis %in% specific_types) %>%
+    group_by(`Admission Type`, Subgroup, admission_diagnosis) %>%
+    summarise(n_specific = n(), .groups = "drop") %>%
+    ungroup()
+  
+  # Calculate cumulative sum for each group
+  specific_hosp <- specific_hosp %>%
+    arrange(`Admission Type`, Subgroup, admission_diagnosis) %>%
+    group_by(`Admission Type`, Subgroup) %>%
+    mutate(cumulative_n = cumsum(n_specific)) %>%
+    ungroup() %>%
+    mutate(label = paste(admission_diagnosis, n_specific, sep = ": "))
+  
+  return(list(other_freq = other_freq,
+              seizure_freq = seizure_freq,
+              specific_freq = specific_hosp))
+}
+
+# Function to clean diagnoses data
+clean_diagnoses_data <- function() {
+  diagnoses <- read_excel(PATH_CITIZEN_DATA, sheet = "clinical_diagnosis_features")
+  diagnoses <- subset(diagnoses, select = c(1:2, 9))
+  
+  # Read diagnosis classifier
+  PATH_DIAGNOSIS_CLASSIFIER <- file.path(DATA_CLASSIFIERS, "Grouping diagnoses.xlsx")
+  diagnosis_classifier <- read_excel(PATH_DIAGNOSIS_CLASSIFIER)
+  diagnosis_classifier <- subset(diagnosis_classifier, select = -c(5))
+  
+  # Apply diagnosis classifier
+  diagnoses <- left_join(diagnoses, diagnosis_classifier, by = c("diagnosis" = "Clinical Diagnoses"))
+  diagnoses <- unique(na.omit(subset(diagnoses, select = c(1:2, 6))))
+  diagnoses <- diagnoses %>% 
+    filter(!System %in% c("Endocrine", "Excretory", "Integumentary"))
+  
+  # Compute overall percentage per system
+  sys_pcts <- diagnoses %>%
+    group_by(System) %>%
+    summarise(sys_pct = n() / nrow(diagnoses) * 100,
+              sys_n = n(),
+              .groups = "drop")
+  
+  # Individual diagnosis frequencies within systems
+  diagnosis_pcts <- diagnoses %>%
+    group_by(System, diagnosis) %>%
+    summarise(diagnosis_n = n(), .groups = "drop")
+  
+  diagnosis_pcts <- left_join(diagnosis_pcts, sys_pcts, by = "System")
+  
+  # Calculate percentage for each diagnosis within system
+  diagnosis_pcts <- diagnosis_pcts %>%
+    mutate(diagnosis_pct = (diagnosis_n / sys_n) * 100) %>% 
+    ungroup()
+  
+  diagnosis_pcts <- subset(diagnosis_pcts, select = c("System", "diagnosis", "diagnosis_pct"))
+  
+  return(list(diagnoses = diagnoses,
+              sys_pcts = sys_pcts,
+              diagnosis_pcts = diagnosis_pcts))
 }
