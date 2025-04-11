@@ -1,90 +1,27 @@
 # R/functions/cleaning_functions.R
 # Functions for common data cleaning tasks
 
-# Load packages
+
+# Library imports
 library(dplyr)
-library(tidyr)
+library(readr)
 library(readxl)
 library(stringr)
-library(lubridate)
 library(tibble)
 
-# Source configuration for file paths
-source(file.path(".", "R", "functions", "config.R"))
+# Source configuration
+source(file.path("R", "functions", "config.R"))
+source(file.path("R", "functions", "data_import_functions.R"))
+source(file.path("R", "functions", "cleaning_utilities.R"))
 
-# Recode unique_types: convert values 2-5 to "2+"
-recode_unique_types <- function(x) {
-  x <- as.character(x)
-  x[x %in% c("2", "3", "4", "5")] <- "2+"
-  factor(x, levels = c("0", "1", "2+"))
-}
-
-# Convert Onset_group to an ordered factor
-factor_onset_group <- function(x) {
-  factor(x, levels = c("1-4 Months", "Neonatal", "4-7 Months", "7-12 Months", "12+ Months"))
-}
-
-# Function to convert specified columns to factor
-convert_to_factor <- function(df, cols) {
-  for (col in cols) {
-    df[[col]] <- as.factor(df[[col]])
-  }
-  return(df)
-}
-
-# Conversion functions for inequality symbols in seizure values
-convert_greater_than <- function(x) {
-  if (grepl(">", x)) {
-    x <- as.numeric(sub(">", "", x)) + 1
-  }
-  return(x)
-}
-convert_less_than <- function(x) {
-  if (grepl("<", x)) {
-    x <- as.numeric(sub("<", "", x)) - 1
-  }
-  return(x)
-}
-convert_greater_than_equal_to <- function(x) {
-  if (grepl("≥", x)) {
-    x <- as.numeric(sub("≥", "", x))
-  }
-  return(x)
-}
-convert_less_than_equal_to <- function(x) {
-  if (grepl("≤", x)) {
-    x <- as.numeric(sub("≤", "", x))
-  }
-  return(x)
-}
-
-# One-hot encode columns based on classifier mapping.
-one_hot_encode <- function(df, classifier, prefix) {
-  for (col_name in colnames(classifier)) {
-    corresponding_cols <- paste0(prefix, classifier[[col_name]])
-    existing_cols <- corresponding_cols %in% colnames(df)
-    if (any(existing_cols)) {
-      df[[col_name]] <- ifelse(rowSums(df[corresponding_cols[existing_cols]]) > 0, 1, 0)
-    }
-  }
-  return(df)
-}
-
-# Merge overlapping intervals for medication data
+# Merge overlapping intervals for medication duration data
 merge_intervals <- function(intervals_df) {
-  intervals_df <- intervals_df %>%
-    arrange(start_med_age)
+  intervals_df <- intervals_df %>% arrange(start_med_age)
   
   if (nrow(intervals_df) == 0) {
-    return(
-      tibble(
-        start_med_age = numeric(0),
-        end_med_age   = numeric(0)
-      )
-    )
+    return(tibble(start_med_age = numeric(0), end_med_age = numeric(0)))
   }
   
-  # Initialize first interval
   current_start <- intervals_df$start_med_age[1]
   current_end   <- intervals_df$end_med_age[1]
   merged_list   <- list()
@@ -95,10 +32,8 @@ merge_intervals <- function(intervals_df) {
       e <- intervals_df$end_med_age[i]
       
       if (s <= current_end) {
-        # Overlapping intervals then merge
         current_end <- max(current_end, e, na.rm = TRUE)
       } else {
-        # No overlap then add previous interval and reset
         merged_list[[length(merged_list) + 1]] <- tibble(
           start_med_age = current_start,
           end_med_age   = current_end
@@ -119,24 +54,17 @@ merge_intervals <- function(intervals_df) {
 
 # Clean and transform medication data
 clean_medication_data <- function() {
-  df_med <- read_excel(PATH_CITIZEN_DATA, sheet = "medication_aggregate")
+  df_med <- read_medication_aggregate()
   
   df_med <- df_med %>%
     mutate(
-      medication = ifelse(
-        grepl("ACTH", medication),
-        "ACTH",
-        medication
-      ),
-      medication = recode(
-        medication,
-        `Epidiolex` = "Epidiolex/CBD",
-        `Cannabidiol` = "Epidiolex/CBD"
-      )
+      medication = ifelse(grepl("ACTH", medication), "ACTH", medication),
+      medication = recode(medication,
+                          `Epidiolex` = "Epidiolex/CBD",
+                          `Cannabidiol` = "Epidiolex/CBD")
     ) %>%
     filter(grepl(MEDS_TO_USE, medication))
   
-  # Build intervals & merge them by patient + medication
   df_duration <- df_med %>%
     transmute(
       patient_uuid,
@@ -149,7 +77,6 @@ clean_medication_data <- function() {
     group_by(patient_uuid, medication) %>%
     group_modify(~ merge_intervals(.x)) %>%
     ungroup() %>%
-    # Drop any intervals <= 0 days
     filter((end_med_age - start_med_age) > 0) %>%
     group_by(patient_uuid, medication) %>%
     mutate(
@@ -158,20 +85,18 @@ clean_medication_data <- function() {
     ) %>%
     ungroup() %>%
     mutate(
-      medication = if_else(
-        intervals_for_this_med > 1,
-        paste0(medication, " ", interval_id),
-        medication
-      )
+      medication = if_else(intervals_for_this_med > 1,
+                           paste0(medication, " ", interval_id),
+                           medication)
     )
-  
   return(df_duration)
 }
 
+# Clean seizure data
 clean_seizure_data <- function(include_spasms = FALSE) {
-  df_sz <- read_excel(PATH_CITIZEN_DATA, sheet = "seizure_history")
+  df_sz <- read_seizure_history()
   
-  # Apply conversions for each type of inequality symbol
+  # Apply conversions for inequality symbols
   df_sz$value[is.na(df_sz$seizure_history_value)] <- 1
   df_sz$seizure_history_value <- sapply(df_sz$seizure_history_value, convert_greater_than)
   df_sz$seizure_history_value <- sapply(df_sz$seizure_history_value, convert_greater_than_equal_to)
@@ -181,18 +106,16 @@ clean_seizure_data <- function(include_spasms = FALSE) {
   
   names(df_sz) <- make.names(sub('^seizure_history_', '', names(df_sz)), unique = TRUE)
   
-  # Read classifier
-  classifier <- read_excel(PATH_CLASSIFIER)
+  classifier <- read_classifier()
   classifier <- classifier[grepl("seizure_", names(classifier))]
   names(classifier) <- sub('^seizure_', '', names(classifier))
   
-  # Create valid seizure types vector, including spasms if requested
-  valid_types <- c(classifier$`tonic-clonic`, classifier$focal, classifier$absence, classifier$tonic, classifier$myoclonic)
+  valid_types <- c(classifier$`tonic-clonic`, classifier$focal, classifier$absence,
+                   classifier$tonic, classifier$myoclonic)
   if (include_spasms) {
     valid_types <- c(valid_types, classifier$spasms)
   }
   
-  # Filter and recode seizure types based on valid_types
   df_type <- df_sz %>% 
     filter(type %in% valid_types) %>%
     mutate(type = case_when(
@@ -205,21 +128,19 @@ clean_seizure_data <- function(include_spasms = FALSE) {
       TRUE ~ type
     ))
   
-  # Read seizure indices
-  tc_index       <- read_excel(PATH_TC_INDEX)      %>% mutate(type = "Tonic-clonic")
-  focal_index    <- read_excel(PATH_FOCAL_INDEX)   %>% mutate(type = "Focal")
-  absence_index  <- read_excel(PATH_ABSENCE_INDEX) %>% mutate(type = "Absence")
-  tonic_index    <- read_excel(PATH_TONIC_INDEX)   %>% mutate(type = "Tonic")
+  # Read and combine index sheets
+  tc_index        <- read_excel(PATH_TC_INDEX)      %>% mutate(type = "Tonic-clonic")
+  focal_index     <- read_excel(PATH_FOCAL_INDEX)     %>% mutate(type = "Focal")
+  absence_index   <- read_excel(PATH_ABSENCE_INDEX)   %>% mutate(type = "Absence")
+  tonic_index     <- read_excel(PATH_TONIC_INDEX)     %>% mutate(type = "Tonic")
   myoclonic_index <- read_excel(PATH_MYOCLONIC_INDEX) %>% mutate(type = "Myoclonic")
   
-  # Combine into single index
   index <- bind_rows(tc_index, focal_index, absence_index, tonic_index, myoclonic_index)
   names(index) <- sub('^seizure_history_', '', names(index))
   names(index) <- sub('^seizure_', '', names(index))
   index <- subset(index, select = -c(3:5, 7))
   index$value <- as.numeric(index$value)
   
-  # Join index values into df_type
   df_type <- left_join(
     df_type,
     unique(index),
@@ -228,11 +149,9 @@ clean_seizure_data <- function(include_spasms = FALSE) {
   )
   df_type$index[is.na(df_type$index)] <- 1
   
-  # Remove LOF patients
   if ("subgroup_lof" %in% names(classifier)) {
     lof_patients <- classifier$subgroup_lof
-    df_type <- df_type %>%
-      filter(!patient_uuid %in% lof_patients)
+    df_type <- df_type %>% filter(!patient_uuid %in% lof_patients)
   }
   
   return(df_type)
@@ -240,10 +159,10 @@ clean_seizure_data <- function(include_spasms = FALSE) {
 
 # Compute appointment summary
 compute_appointment_summary <- function() {
-  df_med_apts <- read_excel(PATH_CITIZEN_DATA, sheet = "medication_aggregate") %>%
+  df_med_apts <- read_medication_aggregate() %>%
     select(patient_uuid, appointment_age_days = medication_age_days_firstDate)
   
-  df_sz_apts <- read_excel(PATH_CITIZEN_DATA, sheet = "seizure_history") %>%
+  df_sz_apts <- read_seizure_history() %>%
     select(patient_uuid, appointment_age_days = seizure_history_age_days)
   
   df_diagnosis_apts <- read_excel(PATH_CITIZEN_DATA, sheet = "clinical_diagnosis") %>%
@@ -253,9 +172,7 @@ compute_appointment_summary <- function() {
     df_med_apts,
     df_sz_apts,
     df_diagnosis_apts
-  ) %>%
-    distinct() %>%
-    mutate(appointment_age_months = appointment_age_days / 30)
+  ) %>% distinct() %>% mutate(appointment_age_months = appointment_age_days / 30)
   
   appointment_summary <- appointment_data_all %>%
     group_by(patient_uuid) %>%
@@ -264,24 +181,14 @@ compute_appointment_summary <- function() {
       last_appointment  = max(appointment_age_months, na.rm = TRUE),
       .groups = "drop"
     )
-  
   return(appointment_summary)
 }
 
-# Function that computes the mean but if no values are present, 0 is returned.
-safe_mean <- function(x) {
-  if(length(x) == 0) return(0)
-  m <- mean(x, na.rm = TRUE)
-  if(is.nan(m)) return(0) else return(m)
-}
-
-# Clean and transform data for timeline plot
+# Prepare timeline data for plotting
 timeline_data <- function(df_sz, classifier) {
-  # Subset classifier
   classifier <- classifier[grepl("^seizure_", names(classifier))]
   names(classifier) <- sub("^seizure_", "", names(classifier))
   
-  # Apply conversions for each type of inequality symbol
   df_sz$value[is.na(df_sz$value)] <- 1
   df_sz$value <- sapply(df_sz$value, convert_greater_than)
   df_sz$value <- sapply(df_sz$value, convert_greater_than_equal_to)
@@ -289,66 +196,41 @@ timeline_data <- function(df_sz, classifier) {
   df_sz$value <- sapply(df_sz$value, convert_less_than_equal_to)
   df_sz$value <- as.numeric(str_trim(df_sz$value))
   
-  genetics <- read_excel(PATH_CITIZEN_DATA, sheet = "genetic_findings")
-  demographics <- read_excel(PATH_CITIZEN_DATA, sheet = "demographics")
-  df_diag <- read_excel(PATH_CITIZEN_DATA, sheet = "diagnostic_procedures")
-  hospitalizations <- read_excel(PATH_CITIZEN_DATA, sheet = "hospital_admission")
-  
-  # Captures all of a patient's appointments
-  df_med_apts <- read_excel(PATH_CITIZEN_DATA, sheet = "medication_aggregate")
-  df_sz_apts <- df_sz %>% 
-    select(patient_uuid, age_days)
-  df_diagnosis_apts <- read_excel(PATH_CITIZEN_DATA, sheet = "clinical_diagnosis") %>%
+  genetics         <- read_excel(PATH_CITIZEN_DATA, sheet = "genetic_findings")
+  demographics     <- read_excel(PATH_CITIZEN_DATA, sheet = "demographics")
+  df_diag          <- read_excel(PATH_CITIZEN_DATA, sheet = "diagnostic_procedures")
+  hospitalizations <- read_hospitalizations()
+  df_med_apts      <- read_medication_aggregate()
+  df_sz_apts       <- df_sz %>% select(patient_uuid, age_days)
+  df_diagnosis_apts<- read_excel(PATH_CITIZEN_DATA, sheet = "clinical_diagnosis") %>%
     select(patient_uuid, clinical_diagnosis_age_days_firstDate)
-  
   overlap_patients <- read_excel(PATH_OVERLAP_PATIENTS)
   
-  # Filter adverse effects for "Moderate" and "Severe"
   adverse_effects <- read_excel(PATH_CITIZEN_DATA, sheet = "adverse_effects")
   adverse_effect_severity <- read_excel(PATH_EFFECTS_SEVERITY)
-  adverse_effects <- adverse_effects %>%
+  adverse_effects <- adverse_effects %>% 
     inner_join(
-      adverse_effect_severity %>% 
-        filter(severity_score %in% c("Moderate", "Severe")), 
+      adverse_effect_severity %>% filter(severity_score %in% c("Moderate", "Severe")), 
       by = "adverse_effect"
     )
   
-  # Identify infantile spasms from raw seizure data
-  df_spasms <- df_sz %>% 
-    filter(type %in% classifier$spasms) %>% 
-    mutate(type = "Infantile Spasms")
+  df_spasms <- df_sz %>% filter(type %in% classifier$spasms) %>% mutate(type = "Infantile Spasms")
   
-  # Create periods where seizure reports are not 0
-  df_spasm_periods <- df_spasms %>%
-    arrange(patient_uuid, age_days) %>%
-    group_by(patient_uuid) %>%
+  df_spasm_periods <- df_spasms %>% arrange(patient_uuid, age_days) %>% group_by(patient_uuid) %>%
     mutate(
       age_months = age_days / 30,
       value_zero = (value == 0),
       period_id = cumsum(lag(value_zero, default = TRUE) & !value_zero)
-    ) %>%
-    filter(value > 0) %>%
-    group_by(patient_uuid, period_id) %>%
-    summarise(
+    ) %>% filter(value > 0) %>% group_by(patient_uuid, period_id) %>% summarise(
       spasm_start_age = min(age_months, na.rm = TRUE),
       spasm_end_age   = max(age_months, na.rm = TRUE),
       num_reports     = n(),
       .groups = "drop"
-    ) %>%
-    mutate(
-      is_single_report = (num_reports == 1)
-    )
+    ) %>% mutate(is_single_report = (num_reports == 1))
   
-  # EEG & hypsarrhythmia
-  df_eeg <- df_diag %>%
-    filter(str_detect(tolower(procedure), "eeg")) %>%
-    mutate(age_months = procedure_age_days / 30)
+  df_eeg <- df_diag %>% filter(str_detect(tolower(procedure), "eeg")) %>% mutate(age_months = procedure_age_days / 30)
+  df_hyps <- df_diag %>% filter(str_detect(tolower(procedure_findings), "hypsarrhythmia")) %>% mutate(age_months = procedure_age_days / 30)
   
-  df_hyps <- df_diag %>%
-    filter(str_detect(tolower(procedure_findings), "hypsarrhythmia")) %>%
-    mutate(age_months = procedure_age_days / 30)
-  
-  # Return everything needed for timeline/plotting
   list(
     genetics           = genetics,
     demographics       = demographics,
@@ -358,7 +240,7 @@ timeline_data <- function(df_sz, classifier) {
     df_sz_apts         = df_sz_apts,
     df_diagnosis_apts  = df_diagnosis_apts,
     overlap_patients   = overlap_patients,
-    adverse_effects     = adverse_effects,
+    adverse_effects    = adverse_effects,
     df_spasms          = df_spasms,
     df_spasm_periods   = df_spasm_periods,
     df_eeg             = df_eeg,
@@ -366,55 +248,36 @@ timeline_data <- function(df_sz, classifier) {
   )
 }
 
-# Prepare per‐patient chart data for patient charts
+# Prepare per‐patient chart data
 prepare_patient_chart_data <- function(pt, seizures_summary_combined, df_duration, df_type, timeline_data, df_dev, df_sz, demographics) {
-  # Extract already loaded data from timeline data
-  genetics           <- timeline_data$genetics
-  overlap_patients   <- timeline_data$overlap_patients
-  df_med_apts        <- timeline_data$df_med_apts
-  df_sz_apts         <- timeline_data$df_sz_apts
-  df_diagnosis_apts  <- timeline_data$df_diagnosis_apts
-  hospitalizations   <- timeline_data$hospitalizations
-  adverse_effects    <- timeline_data$adverse_effects
-  df_spasm_periods   <- timeline_data$df_spasm_periods
-  df_eeg             <- timeline_data$df_eeg
-  df_hyps            <- timeline_data$df_hyps
+  genetics         <- timeline_data$genetics
+  overlap_patients <- timeline_data$overlap_patients
+  df_med_apts      <- timeline_data$df_med_apts
+  df_sz_apts       <- timeline_data$df_sz_apts
+  df_diagnosis_apts<- timeline_data$df_diagnosis_apts
+  hospitalizations <- timeline_data$hospitalizations
+  adverse_effects  <- timeline_data$adverse_effects
+  df_spasm_periods <- timeline_data$df_spasm_periods
+  df_eeg           <- timeline_data$df_eeg
+  df_hyps          <- timeline_data$df_hyps
   
-  # Retrieve patient's protein mutation from genetics or overlap data
-  protein_mutation <- genetics %>%
-    filter(patient_uuid == pt, gene == "SCN8A") %>%
-    pull(variant_protein) %>%
-    first()
+  protein_mutation <- genetics %>% filter(patient_uuid == pt, gene == "SCN8A") %>% pull(variant_protein) %>% first()
   if (is.na(protein_mutation)) {
-    protein_mutation <- overlap_patients %>%
-      filter(`Patient ID` == pt) %>%
-      pull(`p.`) %>%
-      first()
+    protein_mutation <- overlap_patients %>% filter(`Patient ID` == pt) %>% pull(`p.`) %>% first()
   }
   protein_mutation <- ifelse(is.na(protein_mutation), "NA", protein_mutation)
   
-  # Retrieve patient registry number
-  patient_reg_num <- overlap_patients %>%
-    filter(`Patient ID` == pt) %>%
-    pull(`Registry #`) %>%
-    first()
+  patient_reg_num <- overlap_patients %>% filter(`Patient ID` == pt) %>% pull(`Registry #`) %>% first()
   patient_reg_num <- ifelse(!is.na(patient_reg_num), paste0(" (Registry #", patient_reg_num, ")"), "")
   
-  # Check if patient has infantile spasms
-  has_infantile_spasms <- df_sz %>%
-    filter(patient_uuid == pt, type == "Infantile spasms") %>%
-    nrow() > 0
+  has_infantile_spasms <- df_sz %>% filter(patient_uuid == pt, type == "Infantile spasms") %>% nrow() > 0
   title_suffix <- if (has_infantile_spasms) " - IF" else ""
   
-  # Create timeline title
   timeline_title <- paste(pt, patient_reg_num, " (", protein_mutation, ")", title_suffix, sep = "")
   
-  # Subset seizure summary data for patient
   pt_data <- seizures_summary_combined %>% filter(patient_uuid == pt)
   
-  # Prepare medication duration data for patient
-  pt_data_duration <- df_duration %>%
-    filter(patient_uuid == pt) %>%
+  pt_data_duration <- df_duration %>% filter(patient_uuid == pt) %>%
     mutate(
       start_med_age_months = start_med_age / 30,
       end_med_age_months   = end_med_age / 30,
@@ -422,54 +285,29 @@ prepare_patient_chart_data <- function(pt, seizures_summary_combined, df_duratio
       medication_base      = sub(" \\d+$", "", medication)
     )
   
-  # Compute total duration per medication and order medications
-  duration_order <- pt_data_duration %>%
-    group_by(medication) %>%
-    summarise(
-      total_duration = sum(end_med_age - start_med_age, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    arrange(desc(total_duration))
+  duration_order <- pt_data_duration %>% group_by(medication) %>% summarise(
+    total_duration = sum(end_med_age - start_med_age, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% arrange(desc(total_duration))
   
-  pt_data <- pt_data %>%
-    left_join(duration_order, by = "medication") %>%
-    arrange(total_duration) %>%
-    mutate(medication = factor(medication, levels = unique(medication)))
+  pt_data <- pt_data %>% left_join(duration_order, by = "medication") %>% 
+    arrange(total_duration) %>% mutate(medication = factor(medication, levels = unique(medication)))
   
-  # Prepare data for line plot (seizure index vs. time)
-  pt_data_type <- df_type %>%
-    filter(patient_uuid == pt) %>%
-    mutate(age_months = age_days / 30)
+  pt_data_type <- df_type %>% filter(patient_uuid == pt) %>% mutate(age_months = age_days / 30)
   
-  # Collect appointment data and convert to months
   appointment_data <- bind_rows(
     df_med_apts %>% filter(patient_uuid == pt) %>% select(appointment_age_days = medication_age_days_firstDate),
     df_sz_apts %>% filter(patient_uuid == pt) %>% select(appointment_age_days = age_days),
     df_diagnosis_apts %>% filter(patient_uuid == pt) %>% select(appointment_age_days = clinical_diagnosis_age_days_firstDate)
-  ) %>%
-    distinct() %>%
-    mutate(appointment_age_months = appointment_age_days / 30)
+  ) %>% distinct() %>% mutate(appointment_age_months = appointment_age_days / 30)
   
-  # Demographics for patient
-  pt_demographics <- demographics %>%
-    filter(patient_uuid == pt) %>%
-    mutate(most_recent_record_age_months = most_recent_records_age_days / 30)
+  pt_demographics <- demographics %>% filter(patient_uuid == pt) %>% mutate(most_recent_record_age_months = most_recent_records_age_days / 30)
   
-  # Adverse effects data for patient
-  pt_data_adverse <- adverse_effects %>%
-    filter(patient_uuid == pt) %>%
-    mutate(age_months = adverse_effect_age_days_firstDate / 30)
+  pt_data_adverse <- adverse_effects %>% filter(patient_uuid == pt) %>% mutate(age_months = adverse_effect_age_days_firstDate / 30)
   
-  # Hospitalizations for status events
-  pt_data_status <- hospitalizations %>%
-    filter(patient_uuid == pt, admission_diagnosis == "Status epilepticus") %>%
-    mutate(age_months = admission_age_days_firstDate / 30)
+  pt_data_status <- hospitalizations %>% filter(patient_uuid == pt, admission_diagnosis == "Status epilepticus") %>% mutate(age_months = admission_age_days_firstDate / 30)
   
-  # Developmental milestone data for patient
-  pt_dev_data <- df_dev %>%
-    filter(patient_uuid == pt) %>%
-    group_by(domain_milestone) %>%
-    arrange(domain_age_days_firstDate) %>%
+  pt_dev_data <- df_dev %>% filter(patient_uuid == pt) %>% group_by(domain_milestone) %>% arrange(domain_age_days_firstDate) %>%
     mutate(
       age_months = domain_age_days_firstDate / 30,
       status_change = case_when(
@@ -477,33 +315,19 @@ prepare_patient_chart_data <- function(pt, seizures_summary_combined, df_duratio
         domain_status == "Able" & lag(domain_status) == "Unable" ~ "Gained",
         TRUE ~ NA_character_
       )
-    ) %>%
-    ungroup() %>%
-    filter(!is.na(status_change)) %>%
+    ) %>% ungroup() %>% filter(!is.na(status_change)) %>%
     mutate(status_change = factor(status_change, levels = c("Gained", "Loss"))) %>%
     group_by(age_months, status_change, domain) %>%
-    mutate(
-      n_points = n(),
-      y_offset = row_number() - (n_points + 1) / 2
-    ) %>%
-    ungroup()
+    mutate(n_points = n(), y_offset = row_number() - (n_points + 1) / 2) %>% ungroup()
   
-  # Order medications based on earliest start age
-  pt_data_duration <- pt_data_duration %>%
-    group_by(medication_base) %>%
-    mutate(earliest_start = min(start_med_age_months)) %>%
-    ungroup()
-  med_order <- pt_data_duration %>%
-    distinct(medication_base, earliest_start) %>%
-    arrange(earliest_start) %>%
-    pull(medication_base)
+  pt_data_duration <- pt_data_duration %>% group_by(medication_base) %>% mutate(earliest_start = min(start_med_age_months)) %>% ungroup()
   
-  # Filter spasm, EEG, and hypsarrhythmia data
+  med_order <- pt_data_duration %>% distinct(medication_base, earliest_start) %>% arrange(earliest_start) %>% pull(medication_base)
+  
   pt_spasm_periods <- df_spasm_periods %>% filter(patient_uuid == pt)
-  pt_eeg           <- df_eeg %>% filter(patient_uuid == pt)
-  pt_hyps          <- df_hyps %>% filter(patient_uuid == pt)
+  pt_eeg <- df_eeg %>% filter(patient_uuid == pt)
+  pt_hyps <- df_hyps %>% filter(patient_uuid == pt)
   
-  # Return list with all patient-specific data for plotting
   list(
     timeline_title   = timeline_title,
     pt_data          = pt_data,
@@ -521,14 +345,13 @@ prepare_patient_chart_data <- function(pt, seizures_summary_combined, df_duratio
   )
 }
 
-# Read onset ages file and compute onset group
+# Clean onset data by reading onset ages and computing onset group
 clean_onset_data <- function() {
   onset_data <- read_csv(PATH_ONSET_AGES, show_col_types = FALSE)
   
   onset_data <- onset_data %>%
     group_by(UUID) %>%
-    summarise(age_onset = min(Age_onset, na.rm = TRUE)) %>%
-    ungroup() %>%
+    summarise(age_onset = min(Age_onset, na.rm = TRUE), .groups = "drop") %>%
     mutate(
       Onset_group = case_when(
         age_onset <= 30 ~ "Neonatal",
@@ -551,150 +374,108 @@ clean_initial_seizure_types <- function() {
     filter(seizure_history_age_days < AGE_CUTOFF_DAYS) %>%
     rename(UUID = patient_uuid)
   
-  seizure_data <- seizure_data %>%
-    mutate(
-      focal         = ifelse(seizure_history_type %in% initial_classifier$focal, 1, 0),
-      bilateral_tc  = ifelse(seizure_history_type %in% initial_classifier$bilateral_tonic_clonic, 1, 0),
-      absence       = ifelse(seizure_history_type %in% initial_classifier$absence, 1, 0),
-      infantile     = ifelse(seizure_history_type %in% initial_classifier$infantile_spasms, 1, 0)
-    )
+  seizure_data <- seizure_data %>% mutate(
+    focal         = ifelse(seizure_history_type %in% initial_classifier$focal, 1, 0),
+    bilateral_tc  = ifelse(seizure_history_type %in% initial_classifier$bilateral_tonic_clonic, 1, 0),
+    absence       = ifelse(seizure_history_type %in% initial_classifier$absence, 1, 0),
+    infantile     = ifelse(seizure_history_type %in% initial_classifier$infantile_spasms, 1, 0)
+  )
   
-  initial_seizures <- seizure_data %>%
-    group_by(UUID) %>%
-    summarise(
-      focal = sum(focal, na.rm = TRUE),
-      bilateral_tc = sum(bilateral_tc, na.rm = TRUE),
-      absence = sum(absence, na.rm = TRUE),
-      infantile = sum(infantile, na.rm = TRUE)
-    ) %>%
-    mutate(
-      focal = ifelse(focal > 0, 1, 0),
-      bilateral_tc = ifelse(bilateral_tc > 0, 1, 0),
-      absence = ifelse(absence > 0, 1, 0),
-      infantile = ifelse(infantile > 0, 1, 0)
-    )
+  initial_seizures <- seizure_data %>% group_by(UUID) %>% summarise(
+    focal = ifelse(sum(focal, na.rm = TRUE) > 0, 1, 0),
+    bilateral_tc = ifelse(sum(bilateral_tc, na.rm = TRUE) > 0, 1, 0),
+    absence = ifelse(sum(absence, na.rm = TRUE) > 0, 1, 0),
+    infantile = ifelse(sum(infantile, na.rm = TRUE) > 0, 1, 0),
+    .groups = "drop"
+  )
   return(initial_seizures)
 }
 
-# Clean EEG data for abnormal EEG reports
+# Clean abnormal EEG data for abnormal reports
 clean_abnormal_eeg <- function() {
-  classifier <- readxl::read_excel(PATH_CLASSIFIER)
-  eeg_data <- readxl::read_excel(PATH_CITIZEN_DATA, sheet = "diagnostic_procedures") %>%
-    filter(stringr::str_detect(procedure, "EEG")) %>%
+  classifier <- read_classifier()
+  eeg_data <- read_excel(PATH_CITIZEN_DATA, sheet = "diagnostic_procedures") %>%
+    filter(str_detect(procedure, "EEG")) %>%
     select(patient_uuid, procedure_findings, procedure_age_days) %>%
     filter(procedure_age_days < AGE_CUTOFF_DAYS) %>%
     mutate(abnormal_eeg = ave(!(procedure_findings %in% classifier$eeg_normal),
-                                     patient_uuid,
-                                     FUN = function(x) as.integer(any(x)))) %>%
+                              patient_uuid,
+                              FUN = function(x) as.integer(any(x)))) %>%
     rename(UUID = patient_uuid) %>%
     distinct(UUID, abnormal_eeg)
   return(eeg_data)
 }
 
-# Function to clean hospitalization data
+# Clean hospitalization data
 clean_hospitalization_data <- function(select_cols = c(1:2)) {
-  hosp <- read_excel(PATH_CITIZEN_DATA, sheet = "hospital_admission")
+  hosp <- read_hospitalizations()
   hosp <- subset(hosp, select = select_cols)
   
-  # Read hospitalization classifier
   hosp_classifier <- read_excel(PATH_HOSPITALIZATION_CLASSIFIER)
-  
-  # Apply hospitalization classifier
   hosp <- left_join(hosp, hosp_classifier, by = c("admission_diagnosis" = "Hospitalization Events"))
   hosp <- hosp %>% filter(`Admission Type` %in% c("Emergency", "Incidental"))
   
   return(hosp)
 }
 
-# Function to calculate frequency counts for hospitalization data
+# Calculate hospitalization frequencies
 calculate_hospitalization_frequencies <- function(hosp_data) {
-  library(dplyr)
+  freq_df <- hosp_data %>% group_by(`Admission Type`, Subgroup, admission_diagnosis) %>%
+    summarise(n = n(), .groups = "drop") %>% ungroup() %>% na.omit()
   
-  # Compute frequency grouped by Admission Type, Subgroup and diagnosis
-  freq_df <- hosp_data %>%
-    group_by(`Admission Type`, Subgroup, admission_diagnosis) %>%
-    summarise(n = n(), .groups = "drop") %>%
-    ungroup() %>%
-    na.omit()
+  seizure_freq <- freq_df %>% filter(Subgroup == "Seizure") %>%
+    mutate(admission_diagnosis = if_else(admission_diagnosis == "Status epilepticus", "Status epilepticus", "Seizure"))
   
-  # Split into seizure and non-seizure groups
-  seizure_freq <- freq_df %>% filter(Subgroup == "Seizure")
-  other_freq   <- freq_df %>% filter(Subgroup != "Seizure")
-  
-  other_freq <- other_freq %>% mutate(Facet = "Other")
-  seizure_freq <- seizure_freq %>% mutate(Facet = "Seizure")
-  
-  # Recode all seizure diagnoses that are not status events to seizure
-  seizure_freq <- seizure_freq %>%
-    mutate(admission_diagnosis = if_else(admission_diagnosis == "Status epilepticus", 
-                                         "Status epilepticus", "Seizure"))
+  other_freq <- freq_df %>% filter(Subgroup != "Seizure") %>% mutate(Facet = "Other")
   
   hosp_data_mod <- hosp_data
   hosp_data_mod$admission_diagnosis[hosp_data_mod$admission_diagnosis == "Aspiration pneumonia"] <- "Pneumonia"
   hosp_data_mod$admission_diagnosis[hosp_data_mod$admission_diagnosis == "Acute respiratory failure"] <- "Respiratory failure"
   
-  # Diagnoses of interest
   specific_types <- c("Respiratory failure", "Pneumonia")
   
-  # Compute frequencies for specific hospitalizations
-  specific_hosp <- hosp_data_mod %>%
-    filter(`Admission Type` == "Emergency", 
-           admission_diagnosis %in% specific_types) %>%
+  specific_hosp <- hosp_data_mod %>% filter(`Admission Type` == "Emergency", admission_diagnosis %in% specific_types) %>%
     group_by(`Admission Type`, Subgroup, admission_diagnosis) %>%
-    summarise(n_specific = n(), .groups = "drop") %>%
-    ungroup()
+    summarise(n_specific = n(), .groups = "drop") %>% ungroup() %>%
+    arrange(`Admission Type`, Subgroup, admission_diagnosis) %>% group_by(`Admission Type`, Subgroup) %>%
+    mutate(cumulative_n = cumsum(n_specific)) %>% ungroup() %>% mutate(label = paste(admission_diagnosis, n_specific, sep = ": "))
   
-  # Calculate cumulative sum for each group
-  specific_hosp <- specific_hosp %>%
-    arrange(`Admission Type`, Subgroup, admission_diagnosis) %>%
-    group_by(`Admission Type`, Subgroup) %>%
-    mutate(cumulative_n = cumsum(n_specific)) %>%
-    ungroup() %>%
-    mutate(label = paste(admission_diagnosis, n_specific, sep = ": "))
-  
-  return(list(other_freq = other_freq,
-              seizure_freq = seizure_freq,
-              specific_freq = specific_hosp))
+  return(list(
+    other_freq = other_freq,
+    seizure_freq = seizure_freq,
+    specific_freq = specific_hosp
+  ))
 }
 
-# Function to clean diagnoses data
+# Clean diagnoses data
 clean_diagnoses_data <- function() {
   diagnoses <- read_excel(PATH_CITIZEN_DATA, sheet = "clinical_diagnosis_features")
   diagnoses <- subset(diagnoses, select = c(1:2, 9))
   
-  # Read diagnosis classifier
   PATH_DIAGNOSIS_CLASSIFIER <- file.path(DATA_CLASSIFIERS, "Grouping diagnoses.xlsx")
   diagnosis_classifier <- read_excel(PATH_DIAGNOSIS_CLASSIFIER)
   diagnosis_classifier <- subset(diagnosis_classifier, select = -c(5))
   
-  # Apply diagnosis classifier
   diagnoses <- left_join(diagnoses, diagnosis_classifier, by = c("diagnosis" = "Clinical Diagnoses"))
   diagnoses <- unique(na.omit(subset(diagnoses, select = c(1:2, 6))))
-  diagnoses <- diagnoses %>% 
-    filter(!System %in% c("Endocrine", "Excretory", "Integumentary"))
+  diagnoses <- diagnoses %>% filter(!System %in% c("Endocrine", "Excretory", "Integumentary"))
   
-  # Compute overall percentage per system
-  sys_pcts <- diagnoses %>%
-    group_by(System) %>%
-    summarise(sys_pct = n() / nrow(diagnoses) * 100,
-              sys_n = n(),
-              .groups = "drop")
+  sys_pcts <- diagnoses %>% group_by(System) %>% summarise(
+    sys_pct = n() / nrow(diagnoses) * 100,
+    sys_n = n(),
+    .groups = "drop"
+  )
   
-  # Individual diagnosis frequencies within systems
-  diagnosis_pcts <- diagnoses %>%
-    group_by(System, diagnosis) %>%
-    summarise(diagnosis_n = n(), .groups = "drop")
+  diagnosis_pcts <- diagnoses %>% group_by(System, diagnosis) %>% summarise(diagnosis_n = n(), .groups = "drop")
   
   diagnosis_pcts <- left_join(diagnosis_pcts, sys_pcts, by = "System")
-  
-  # Calculate percentage for each diagnosis within system
-  diagnosis_pcts <- diagnosis_pcts %>%
-    mutate(diagnosis_pct = (diagnosis_n / sys_n) * 100) %>% 
-    ungroup()
+  diagnosis_pcts <- diagnosis_pcts %>% mutate(diagnosis_pct = (diagnosis_n / sys_n) * 100) %>% ungroup()
   
   diagnosis_pcts <- subset(diagnosis_pcts, select = c("System", "diagnosis", "diagnosis_pct"))
   
-  return(list(diagnoses = diagnoses,
-              sys_pcts = sys_pcts,
-              diagnosis_pcts = diagnosis_pcts))
+  return(list(
+    diagnoses = diagnoses,
+    sys_pcts = sys_pcts,
+    diagnosis_pcts = diagnosis_pcts
+  ))
 }

@@ -18,8 +18,6 @@ read_classifier <- function() {
   read_excel(PATH_CLASSIFIER)
 }
 
-library(readxl)
-
 read_medication_aggregate <- function() {
   read_excel(PATH_CITIZEN_DATA, sheet = "medication_aggregate")
 }
