@@ -37,6 +37,19 @@ HEATMAP_LOW_COLOR  <- "#083681"
 HEATMAP_MID_COLOR  <- "#F7F7F7"
 HEATMAP_HIGH_COLOR <- "#C80813FF"
 
+# Lighten one or more colors by blending toward white.
+lighten_color <- function(color, amount = 0.25) {
+  rgb_mat <- grDevices::col2rgb(color)
+  amount <- max(0, min(1, amount))
+  lightened <- rgb_mat + (255 - rgb_mat) * amount
+
+  grDevices::rgb(
+    red = lightened[1, ] / 255,
+    green = lightened[2, ] / 255,
+    blue = lightened[3, ] / 255
+  )
+}
+
 # Plot seizure types over age
 plot_seizure_types_over_age <- function(norm_df, xlim = c(0, 10), ylim = c(0, 1)) {
   p <- ggplot(norm_df, aes(x = age_year, y = prop, fill = type)) +
@@ -122,8 +135,8 @@ plot_hospitalization_lineplot <- function(hosp_data) {
 
 # Plot diagnoses by body system (Figure 3)
 plot_diagnoses_by_system <- function(sys_pcts, diagnosis_pcts, output_file) {
-  colors <- c("#a30234", "#e4b8b4", "#e37c1d", "#bacfec", "#ffde76", lighten("#00545f", 0.25),
-              "#0076c0", lighten("#67771a", 0.25), "#abb47d", "#a1c5fb", "#7a5072")
+  colors <- c("#a30234", "#e4b8b4", "#e37c1d", "#bacfec", "#ffde76", lighten_color("#00545f", 0.25),
+              "#0076c0", lighten_color("#67771a", 0.25), "#abb47d", "#a1c5fb", "#7a5072")
   unique_systems <- c("Musculoskeletal", "Gastrointestinal", "Behavioral", "Neurological", 
                       "Sensory", "Respiratory", "Cardiovascular", "Immunological")
   
@@ -166,12 +179,12 @@ plot_diagnoses_by_system <- function(sys_pcts, diagnosis_pcts, output_file) {
     if (system %in% c("Neurological", "Sensory", "Gastrointestinal")) {
       table <- ggtexttable(sys_dfs[[system]], rows = NULL, theme = ttheme(
         colnames.style = colnames_style(color = "black", fill = colors[i]),
-        tbody.style = tbody_style(color = "black", fill = lighten(colors[i], 0.5))
+        tbody.style = tbody_style(color = "black", fill = lighten_color(colors[i], 0.5))
       ))
     } else {
       table <- ggtexttable(sys_dfs[[system]], rows = NULL, theme = ttheme(
         colnames.style = colnames_style(color = "white", fill = colors[i]),
-        tbody.style = tbody_style(color = "black", fill = lighten(colors[i], 0.5))
+        tbody.style = tbody_style(color = "black", fill = lighten_color(colors[i], 0.5))
       ))
     }
     
