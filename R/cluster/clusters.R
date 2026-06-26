@@ -259,11 +259,13 @@ cluster_data_final <- cluster_data_final %>%
 
 # Exclude specified diagnosis and hospitalization features
 cluster_data_final <- cluster_data_final %>%
-  select(-diag_neuro, -diag_respiratory, -diag_behavioral,
-         -diag_sensory, -diag_immune,
-         -hosp_neuro, -hosp_gi, -hosp_pulmonary,
-         -hosp_infection, -hosp_respiratory_failure,
-         -hosp_behavior)
+  select(-any_of(c(
+    "diag_neuro", "diag_respiratory", "diag_behavioral",
+    "diag_sensory", "diag_immune",
+    "hosp_neuro", "hosp_gi", "hosp_pulmonary",
+    "hosp_infection", "hosp_respiratory_failure",
+    "hosp_behavior"
+  )))
 
 # Exclude patients w/ more than 25 NA values
 cluster_data_final <- cluster_data_final %>%
@@ -362,15 +364,27 @@ ggsave(filename = file.path(FIGS, "clusters", run_suffix, paste0("clusters_", la
 }
 
 # Execute clustering runs
-time_labels <- c("3yr", "5yr", "8yr", "10yr")            
+cluster_cutoffs <- c("1yr" = 365.25, setNames(CLUSTER_CUTOFFS, c("3yr", "5yr", "8yr", "10yr")))
+labels_to_run <- Sys.getenv("CLUSTER_LABELS", unset = "")
+if (nzchar(labels_to_run)) {
+  labels_to_run <- str_split(labels_to_run, ",", simplify = TRUE) %>%
+    as.vector() %>%
+    str_trim()
+  unknown_labels <- setdiff(labels_to_run, names(cluster_cutoffs))
+  if (length(unknown_labels) > 0) {
+    stop("Unknown cluster label(s): ", paste(unknown_labels, collapse = ", "))
+  }
+  cluster_cutoffs <- cluster_cutoffs[labels_to_run]
+}
+
 run_types <- list(
   list(name = "unknown_excluded", exclude_vec = UNKNOWN),
   list(name = "lof_excluded",     exclude_vec = LOF)
 )
 
 for (rt in run_types) {
-  for (i in seq_along(CLUSTER_CUTOFFS)) {
-    produce_clusters(CLUSTER_CUTOFFS[i], time_labels[i],
+  for (label in names(cluster_cutoffs)) {
+    produce_clusters(cluster_cutoffs[[label]], label,
                      rt$exclude_vec, rt$name)
   }
 }
