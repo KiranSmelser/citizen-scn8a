@@ -10,7 +10,7 @@ suppressPackageStartupMessages({
 
 source(file.path(".", "R", "config.R"))
 
-time_labels  <- c("3yr", "5yr", "8yr", "10yr")
+time_labels  <- c("1yr", "3yr", "5yr", "8yr", "10yr")
 run_suffixes <- c("unknown_excluded", "lof_excluded")
 
 # Mapping file

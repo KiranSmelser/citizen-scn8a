@@ -9,7 +9,7 @@ library(forcats)
 
 source(file.path(".", "R", "config.R"))
 
-time_labels   <- c("3yr", "5yr", "8yr", "10yr")
+time_labels   <- c("1yr", "3yr", "5yr", "8yr", "10yr")
 run_suffixes <- c("unknown_excluded", "lof_excluded")
 
 for (run_suffix in run_suffixes) {
@@ -75,8 +75,9 @@ p_alluvial <- ggplot(alluvial_df,
                          axis2 = !!sym(time_labels[2]),
                          axis3 = !!sym(time_labels[3]),
                          axis4 = !!sym(time_labels[4]),
+                         axis5 = !!sym(time_labels[5]),
                          y     = 1)) +
-  geom_alluvium(aes(fill = !!sym(time_labels[1])),
+  geom_alluvium(aes(fill = !!sym("3yr")),
                 alpha = 0.7, width = 1 / 12) +
   geom_stratum(width = 1 / 4, fill = "white",
                color = "black", show.legend = FALSE) +
@@ -85,7 +86,7 @@ p_alluvial <- ggplot(alluvial_df,
             size = 3) +
   scale_x_discrete(limits = time_labels) +
   labs(title = "Change in Cluster Membership Across Age Cut-offs",
-       x = NULL, y = "Number of Patients", fill = "3‑year Cluster") +
+       x = NULL, y = "Number of Patients", fill = "3-year Cluster") +
   theme_classic() +
   theme(axis.line.x  = element_blank(),
         axis.ticks.x = element_blank(),

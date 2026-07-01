@@ -9,8 +9,9 @@ suppressPackageStartupMessages({
 
 source(file.path(".", "R", "config.R"))
 
-time_labels  <- c("3yr", "5yr", "8yr", "10yr")
-age_pairs    <- list(c("3yr", "5yr"),
+time_labels  <- c("1yr", "3yr", "5yr", "8yr", "10yr")
+age_pairs    <- list(c("1yr", "3yr"),
+                     c("3yr", "5yr"),
                      c("5yr", "8yr"),
                      c("8yr", "10yr"))
 run_suffixes <- c("unknown_excluded", "lof_excluded")

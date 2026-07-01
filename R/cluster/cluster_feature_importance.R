@@ -10,7 +10,7 @@ suppressPackageStartupMessages({
 
 source(file.path(".", "R", "config.R"))
 
-time_labels <- c("3yr", "5yr", "8yr", "10yr")
+time_labels <- c("1yr", "3yr", "5yr", "8yr", "10yr")
 run_suffixes <- c("unknown_excluded", "lof_excluded")
 
 # Loop over each exclusion scenario
@@ -28,6 +28,7 @@ for (run_suffix in run_suffixes) {
 
 # Helper for elastic‑net model
 run_glmnet <- function(x, y, alpha = 0.5, nfolds = 10) {
+  nfolds <- min(nfolds, min(table(y)))
   cv.glmnet(
     x        = x,
     y        = y,
@@ -56,7 +57,7 @@ run_glmnet <- function(x, y, alpha = 0.5, nfolds = 10) {
       x <- x[keep, , drop = FALSE]
       y <- droplevels(y[keep])
 
-      if (nlevels(y) <= 2) {
+      if (nlevels(y) < 2) {
         return(invisible(NULL))
       }
     }
@@ -100,7 +101,7 @@ run_glmnet <- function(x, y, alpha = 0.5, nfolds = 10) {
 
   # Read and combine
   coef_files <- list.files(path = coef_dir,
-                           pattern = "_coefs\\.csv$",
+                           pattern = paste0("^(", paste(time_labels, collapse = "|"), ")_coefs\\.csv$"),
                            full.names = TRUE)
 
   coef_all <- purrr::map_dfr(coef_files, function(f) {
@@ -111,7 +112,7 @@ run_glmnet <- function(x, y, alpha = 0.5, nfolds = 10) {
 
   # Factor time_period
   coef_all <- coef_all %>%
-    mutate(time_period = factor(time_period, levels = c("3yr", "5yr", "8yr", "10yr")))
+    mutate(time_period = factor(time_period, levels = time_labels))
 
   # Order features within each facet
   coef_all <- coef_all %>%
