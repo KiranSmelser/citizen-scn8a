@@ -49,6 +49,17 @@ AGE_CUTOFF_DAYS <- 1095
 # Cluster age cutoffs (days)
 CLUSTER_CUTOFFS <- c(1095, 1826.25, 2922, 3652.5)
 
+# Epilepsia-friendly cluster palette shared by PCA and alluvial figures.
+# The first three colors match the SCN2A analysis; the remaining colors extend
+# the same publication palette for SCN8A runs that contain four or five groups.
+CLUSTER_COLORS <- c(
+  "1" = "#0067B9",
+  "2" = "#D06012",
+  "3" = "#005B56",
+  "4" = "#E5B700",
+  "5" = "#9E1B4D"
+)
+
 # UNKNOWN patients
 UNKNOWN <- c("56d3dc1e-63d5-4ad6-9493-57de0fd7ef0e", "b17a5dff-ebfb-4621-97b9-a0072da41851",
          "47c27adc-27bd-41df-b39c-ae70495716cb", "5c8bb15f-1f87-41a1-8932-ff18afdba917", 

@@ -42,6 +42,7 @@ compute_feature_summary <- function(df) {
 cluster_dfs <- lapply(seq_along(cluster_files), function(i) {
   tp <- time_labels[i]
   read.csv(cluster_files[i], stringsAsFactors = FALSE) %>%
+    select(patient_uuid, cluster) %>%
     rename(!!tp := cluster)
 })
 
@@ -84,6 +85,7 @@ p_alluvial <- ggplot(alluvial_df,
   geom_text(stat = "stratum",
             aes(label = after_stat(stratum)),
             size = 3) +
+  scale_fill_manual(values = CLUSTER_COLORS) +
   scale_x_discrete(limits = time_labels) +
   labs(title = "Change in Cluster Membership Across Age Cut-offs",
        x = NULL, y = "Number of Patients", fill = "3-year Cluster") +
